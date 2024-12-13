@@ -21,6 +21,8 @@ def extract_text_from_pdf(pdf_path):
             full_text += text + "\n"
     return full_text
 
+unique_cyrillic_letters = [ 'Ё', 'Ж', 'З', 'И', 'Й', 'Л', 'П', 'Ф', 'Ц', 'Ч', 'Ш', 'Щ', 'Ъ', 'Ы', 'Ь', 'Э', 'Ю', 'Я' ]
+
 CORS(app)
 
 UPLOAD_FOLDER = 'temp_uploads'
@@ -62,7 +64,6 @@ def anonymize_pdf():
         bic_pattern = r"[A-Z]{4}\s?\w{2}\s?\w{2}"
         
         if request.form['mode'] == "manual":
-            print("manuel")
             words = json.loads(request.form['words'])
             listFake = []
             
@@ -70,17 +71,21 @@ def anonymize_pdf():
             pdf.LoadFromFile(input_pdf_path)
             
             for word in words:
-                if word[0].isupper():
+                if re.match(iban_pattern, word):
+                    iban = word[:2] + "".join(random.choice("0123456789") for _ in range(len(word) - 2))
+                    listFake.append(str(iban))
+                elif re.match(email_pattern, word):
+                    words[words.index(word)] = word[0].lower() + word[1:] # car le site selectionne les emails avec une majuscule au début
+                    listFake.append(fake.email())
+                elif re.match(bic_pattern, word):
+                    bic = "".join(random.choice("ABCDEFGHIJKLMNOPQRSTUVWXYZ") for _ in range(len(word)))
+                    listFake.append(str(bic))
+                elif word[0].isupper():
                     nom = fake.name()
                     for chr in word:
                         if not chr.isalpha():
                             nom = nom + chr
                     listFake.append(str(nom))
-                elif re.match(email_pattern, word):
-                    listFake.append(fake.email())
-                elif re.match(bic_pattern, word):
-                    bic = word[:2] + ''.join(random.choice("0123456789") for _ in range(8))
-                    listFake.append(str(bic))
                 else:
                     fakeword = word[:2]
                     for i in range(2, len(word)):
@@ -92,14 +97,13 @@ def anonymize_pdf():
                             fakeword += word[i]
                     listFake.append(str(fakeword))
                     
-            print("Mots à remplacer :")
-            for i in range(len(words)):
-                print(f"{words[i]} -> {listFake[i]}")
-            
             for i in range(pdf.Pages.Count):
                 page = pdf.Pages.get_Item(i)
                 replacer = PdfTextReplacer(page)
                 for i in range (len(words)):
+                  if(request.form['optionManuel'] == "mask"):
+                    replacer.ReplaceAllText(words[i], "#" * (len(words[i])-2))
+                  else:
                     replacer.ReplaceAllText(words[i], listFake[i])
             
             pdf.SaveToFile(output_pdf_path)
@@ -212,7 +216,9 @@ def anonymize_pdf():
                         for entity in entities:
                             nom = fake.name().split(" ")[0]
                             for chr in entity:
-                                if not chr.isalpha():
+                                if chr.upper() in unique_cyrillic_letters:
+                                    nom += random.choice(unique_cyrillic_letters)
+                                elif not chr.isalpha():
                                     nom = nom + chr
                             replacer.ReplaceAllText(entity, nom)
                     elif category == "Téléphones":
